@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import re
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -41,8 +44,8 @@ def test_load_agent_spec_with_exclude_tools(agent_file_with_tools: Path):
     """Test loading agent spec with excluded tools."""
     spec = load_agent_spec(agent_file_with_tools)
 
-    assert spec.tools == snapshot(["kimi_cli.tools.think:Think", "kimi_cli.tools.bash:Bash"])
-    assert spec.exclude_tools == snapshot(["kimi_cli.tools.bash:Bash"])
+    assert spec.tools == snapshot(["kimi_cli.tools.think:Think", "kimi_cli.tools.shell:Shell"])
+    assert spec.exclude_tools == snapshot(["kimi_cli.tools.shell:Shell"])
 
 
 def test_load_agent_spec_extension(agent_file_extending: Path):
@@ -80,10 +83,9 @@ agent:
         )
         assert spec.tools == snapshot(
             [
-                "kimi_cli.tools.task:Task",
-                "kimi_cli.tools.think:Think",
+                "kimi_cli.tools.multiagent:Task",
                 "kimi_cli.tools.todo:SetTodoList",
-                "kimi_cli.tools.bash:Bash",
+                "kimi_cli.tools.shell:Shell",
                 "kimi_cli.tools.file:ReadFile",
                 "kimi_cli.tools.file:Glob",
                 "kimi_cli.tools.file:Grep",
@@ -120,7 +122,10 @@ agent:
 def test_load_agent_spec_nonexistent_file():
     """Test loading nonexistent agent spec file raises AssertionError."""
     nonexistent = Path("/nonexistent/agent.yaml")
-    with pytest.raises(AssertionError, match="expect agent file to exist"):
+    with pytest.raises(
+        AgentSpecError,
+        match=re.compile(r"Agent spec file not found: [\\/]nonexistent[\\/]agent.yaml"),
+    ):
         load_agent_spec(nonexistent)
 
 
@@ -229,8 +234,8 @@ version: 1
 agent:
   name: "Test Agent"
   system_prompt_path: ./system.md
-  tools: ["kimi_cli.tools.think:Think", "kimi_cli.tools.bash:Bash"]
-  exclude_tools: ["kimi_cli.tools.bash:Bash"]
+  tools: ["kimi_cli.tools.think:Think", "kimi_cli.tools.shell:Shell"]
+  exclude_tools: ["kimi_cli.tools.shell:Shell"]
 """)
 
         yield agent_yaml

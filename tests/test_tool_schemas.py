@@ -1,16 +1,18 @@
+from __future__ import annotations
+
 # ruff: noqa
 
 from inline_snapshot import snapshot
 
-from kimi_cli.tools.bash import Bash
+from kimi_cli.tools.shell import Shell
 from kimi_cli.tools.dmail import SendDMail
 from kimi_cli.tools.file.glob import Glob
 from kimi_cli.tools.file.grep import Grep
-from kimi_cli.tools.file.patch import PatchFile
+
 from kimi_cli.tools.file.read import ReadFile
 from kimi_cli.tools.file.replace import StrReplaceFile
 from kimi_cli.tools.file.write import WriteFile
-from kimi_cli.tools.task import Task
+from kimi_cli.tools.multiagent.task import Task
 from kimi_cli.tools.think import Think
 from kimi_cli.tools.todo import SetTodoList
 from kimi_cli.tools.web.fetch import FetchURL
@@ -79,28 +81,25 @@ def test_set_todo_list_params_schema(set_todo_list_tool: SetTodoList):
     """Test the schema of SetTodoList tool parameters."""
     assert set_todo_list_tool.base.parameters == snapshot(
         {
-            "$defs": {
-                "Todo": {
-                    "properties": {
-                        "title": {
-                            "description": "The title of the todo",
-                            "minLength": 1,
-                            "type": "string",
-                        },
-                        "status": {
-                            "description": "The status of the todo",
-                            "enum": ["Pending", "In Progress", "Done"],
-                            "type": "string",
-                        },
-                    },
-                    "required": ["title", "status"],
-                    "type": "object",
-                }
-            },
             "properties": {
                 "todos": {
                     "description": "The updated todo list",
-                    "items": {"$ref": "#/$defs/Todo"},
+                    "items": {
+                        "properties": {
+                            "title": {
+                                "description": "The title of the todo",
+                                "minLength": 1,
+                                "type": "string",
+                            },
+                            "status": {
+                                "description": "The status of the todo",
+                                "enum": ["Pending", "In Progress", "Done"],
+                                "type": "string",
+                            },
+                        },
+                        "required": ["title", "status"],
+                        "type": "object",
+                    },
                     "type": "array",
                 }
             },
@@ -110,9 +109,9 @@ def test_set_todo_list_params_schema(set_todo_list_tool: SetTodoList):
     )
 
 
-def test_bash_params_schema(bash_tool: Bash):
-    """Test the schema of Bash tool parameters."""
-    assert bash_tool.base.parameters == snapshot(
+def test_shell_params_schema(shell_tool: Shell):
+    """Test the schema of Shell tool parameters."""
+    assert shell_tool.base.parameters == snapshot(
         {
             "properties": {
                 "command": {
@@ -288,27 +287,6 @@ def test_str_replace_file_params_schema(str_replace_file_tool: StrReplaceFile):
     """Test the schema of StrReplaceFile tool parameters."""
     assert str_replace_file_tool.base.parameters == snapshot(
         {
-            "$defs": {
-                "Edit": {
-                    "properties": {
-                        "old": {
-                            "description": "The old string to replace. Can be multi-line.",
-                            "type": "string",
-                        },
-                        "new": {
-                            "description": "The new string to replace with. Can be multi-line.",
-                            "type": "string",
-                        },
-                        "replace_all": {
-                            "default": False,
-                            "description": "Whether to replace all occurrences.",
-                            "type": "boolean",
-                        },
-                    },
-                    "required": ["old", "new"],
-                    "type": "object",
-                }
-            },
             "properties": {
                 "path": {
                     "description": "The absolute path to the file to edit.",
@@ -316,33 +294,52 @@ def test_str_replace_file_params_schema(str_replace_file_tool: StrReplaceFile):
                 },
                 "edit": {
                     "anyOf": [
-                        {"$ref": "#/$defs/Edit"},
-                        {"items": {"$ref": "#/$defs/Edit"}, "type": "array"},
+                        {
+                            "properties": {
+                                "old": {
+                                    "description": "The old string to replace. Can be multi-line.",
+                                    "type": "string",
+                                },
+                                "new": {
+                                    "description": "The new string to replace with. Can be multi-line.",
+                                    "type": "string",
+                                },
+                                "replace_all": {
+                                    "default": False,
+                                    "description": "Whether to replace all occurrences.",
+                                    "type": "boolean",
+                                },
+                            },
+                            "required": ["old", "new"],
+                            "type": "object",
+                        },
+                        {
+                            "items": {
+                                "properties": {
+                                    "old": {
+                                        "description": "The old string to replace. Can be multi-line.",
+                                        "type": "string",
+                                    },
+                                    "new": {
+                                        "description": "The new string to replace with. Can be multi-line.",
+                                        "type": "string",
+                                    },
+                                    "replace_all": {
+                                        "default": False,
+                                        "description": "Whether to replace all occurrences.",
+                                        "type": "boolean",
+                                    },
+                                },
+                                "required": ["old", "new"],
+                                "type": "object",
+                            },
+                            "type": "array",
+                        },
                     ],
                     "description": "The edit(s) to apply to the file. You can provide a single edit or a list of edits here.",
                 },
             },
             "required": ["path", "edit"],
-            "type": "object",
-        }
-    )
-
-
-def test_patch_file_params_schema(patch_file_tool: PatchFile):
-    """Test the schema of PatchFile tool parameters."""
-    assert patch_file_tool.base.parameters == snapshot(
-        {
-            "properties": {
-                "path": {
-                    "description": "The absolute path to the file to apply the patch to.",
-                    "type": "string",
-                },
-                "diff": {
-                    "description": "The diff content in unified format to apply.",
-                    "type": "string",
-                },
-            },
-            "required": ["path", "diff"],
             "type": "object",
         }
     )

@@ -1,9 +1,9 @@
+from __future__ import annotations
+
 import asyncio
-import subprocess
-import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import NamedTuple
 
 from kimi_cli.config import Config
 from kimi_cli.llm import LLM
@@ -11,9 +11,11 @@ from kimi_cli.session import Session
 from kimi_cli.soul.approval import Approval
 from kimi_cli.soul.denwarenji import DenwaRenji
 from kimi_cli.utils.logging import logger
+from kimi_cli.utils.path import list_directory
 
 
-class BuiltinSystemPromptArgs(NamedTuple):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class BuiltinSystemPromptArgs:
     """Builtin system prompt arguments."""
 
     KIMI_NOW: str
@@ -39,27 +41,8 @@ def load_agents_md(work_dir: Path) -> str | None:
     return None
 
 
-def _list_work_dir(work_dir: Path) -> str:
-    if sys.platform == "win32":
-        ls = subprocess.run(
-            ["cmd", "/c", "dir", work_dir],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    else:
-        ls = subprocess.run(
-            ["ls", "-la", work_dir],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-    return ls.stdout.strip()
-
-
-class Runtime(NamedTuple):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Runtime:
     """Agent runtime."""
 
     config: Config
@@ -75,9 +58,9 @@ class Runtime(NamedTuple):
         llm: LLM | None,
         session: Session,
         yolo: bool,
-    ) -> "Runtime":
+    ) -> Runtime:
         ls_output, agents_md = await asyncio.gather(
-            asyncio.to_thread(_list_work_dir, session.work_dir),
+            asyncio.to_thread(list_directory, session.work_dir),
             asyncio.to_thread(load_agents_md, session.work_dir),
         )
 

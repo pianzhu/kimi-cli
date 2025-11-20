@@ -9,6 +9,47 @@ Internal builds may append content to the Unreleased section.
 Only write entries that are worth mentioning to users.
 -->
 
+## [0.57] - 2025-11-20
+
+- LLM: Fix Google GenAI provider when thinking toggle is not on
+- UI: Improve approval request wordings
+- Tool: Remove `PatchFile` tool
+- Tool: Rename `Bash`/`CMD` tool to `Shell` tool
+- Tool: Move `Task` tool to `kimi_cli.tools.multiagent` module
+
+## [0.56] - 2025-11-19
+
+- LLM: Add support for Google GenAI provider
+
+## [0.55] - 2025-11-18
+
+- Lib: Add `kimi_cli.app.enable_logging` function to enable logging when directly using `KimiCLI` class
+- Core: Fix relative path resolution in agent spec files
+- Core: Prevent from panic when LLM API connection failed
+- Tool: Optimize `FetchURL` tool for better content extraction
+- Tool: Increase MCP tool call timeout to 60 seconds
+- Tool: Provide better error message in `Glob` tool when pattern is `**`
+- ACP: Fix thinking content not displayed properly
+- UI: Minor UI improvements in shell mode
+
+## [0.54] - 2025-11-13
+
+- Lib: Move `WireMessage` from `kimi_cli.wire.message` to `kimi_cli.wire`
+- Print: Fix `stream-json` output format missing the last assistant message
+- UI: Add warning when API key is overridden by `KIMI_API_KEY` environment variable
+- UI: Make a bell sound when there's an approval request
+- Core: Fix context compaction and clearing on Windows
+
+## [0.53] - 2025-11-12
+
+- UI: Remove unnecessary trailing spaces in console output
+- Core: Throw error when there are unsupported message parts
+- MetaCmd: Add `/yolo` meta command to enable YOLO mode after startup
+- Tool: Add approval request for MCP tools
+- Tool: Disable `Think` tool in default agent
+- CLI: Restore thinking mode from last time when `--thinking` is not specified
+- CLI: Fix `/reload` not working in binary packed by PyInstaller
+
 ## [0.52] - 2025-11-10
 
 - CLI: Remove `--ui` option in favor of `--print`, `--acp`, and `--wire` flags (shell is still the default)

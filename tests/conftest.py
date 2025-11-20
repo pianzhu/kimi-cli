@@ -1,5 +1,7 @@
 """Test configuration and fixtures."""
 
+from __future__ import annotations
+
 import platform
 import tempfile
 from collections.abc import Generator
@@ -17,15 +19,14 @@ from kimi_cli.session import Session
 from kimi_cli.soul.approval import Approval
 from kimi_cli.soul.denwarenji import DenwaRenji
 from kimi_cli.soul.runtime import BuiltinSystemPromptArgs, Runtime
-from kimi_cli.tools.bash import Bash
 from kimi_cli.tools.dmail import SendDMail
 from kimi_cli.tools.file.glob import Glob
 from kimi_cli.tools.file.grep import Grep
-from kimi_cli.tools.file.patch import PatchFile
 from kimi_cli.tools.file.read import ReadFile
 from kimi_cli.tools.file.replace import StrReplaceFile
 from kimi_cli.tools.file.write import WriteFile
-from kimi_cli.tools.task import Task
+from kimi_cli.tools.multiagent.task import Task
+from kimi_cli.tools.shell import Shell
 from kimi_cli.tools.think import Think
 from kimi_cli.tools.todo import SetTodoList
 from kimi_cli.tools.web.fetch import FetchURL
@@ -167,10 +168,10 @@ def set_todo_list_tool() -> SetTodoList:
 
 
 @pytest.fixture
-def bash_tool(approval: Approval) -> Generator[Bash]:
-    """Create a Bash tool instance."""
-    with tool_call_context("Bash"):
-        yield Bash(approval)
+def shell_tool(approval: Approval) -> Generator[Shell]:
+    """Create a Shell tool instance."""
+    with tool_call_context("Shell"):
+        yield Shell(approval)
 
 
 @pytest.fixture
@@ -207,15 +208,6 @@ def str_replace_file_tool(
     """Create a StrReplaceFile tool instance."""
     with tool_call_context("StrReplaceFile"):
         yield StrReplaceFile(builtin_args, approval)
-
-
-@pytest.fixture
-def patch_file_tool(
-    builtin_args: BuiltinSystemPromptArgs, approval: Approval
-) -> Generator[PatchFile]:
-    """Create a PatchFile tool instance."""
-    with tool_call_context("PatchFile"):
-        yield PatchFile(builtin_args, approval)
 
 
 @pytest.fixture

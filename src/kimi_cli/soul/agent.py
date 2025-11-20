@@ -1,10 +1,13 @@
+from __future__ import annotations
+
 import importlib
 import inspect
 import string
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
-from kosong.tooling import CallableTool, CallableTool2, Toolset
+from kosong.tooling import Toolset
 
 from kimi_cli.agentspec import ResolvedAgentSpec, load_agent_spec
 from kimi_cli.config import Config
@@ -12,12 +15,13 @@ from kimi_cli.session import Session
 from kimi_cli.soul.approval import Approval
 from kimi_cli.soul.denwarenji import DenwaRenji
 from kimi_cli.soul.runtime import BuiltinSystemPromptArgs, Runtime
-from kimi_cli.soul.toolset import CustomToolset
+from kimi_cli.soul.toolset import KimiToolset, ToolType
 from kimi_cli.tools import SkipThisTool
 from kimi_cli.utils.logging import logger
 
 
-class Agent(NamedTuple):
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Agent:
     """The loaded agent."""
 
     name: str
@@ -60,14 +64,13 @@ async def load_agent(
     if agent_spec.exclude_tools:
         logger.debug("Excluding tools: {tools}", tools=agent_spec.exclude_tools)
         tools = [tool for tool in tools if tool not in agent_spec.exclude_tools]
-    toolset = CustomToolset()
+    toolset = KimiToolset()
     bad_tools = _load_tools(toolset, tools, tool_deps)
     if bad_tools:
         raise ValueError(f"Invalid tools: {bad_tools}")
 
-    assert isinstance(toolset, CustomToolset)
     if mcp_configs:
-        await _load_mcp_tools(toolset, mcp_configs)
+        await _load_mcp_tools(toolset, mcp_configs, runtime)
 
     return Agent(
         name=agent_spec.name,
@@ -86,15 +89,12 @@ def _load_system_prompt(
         builtin_args=builtin_args,
         spec_args=args,
     )
-    return string.Template(system_prompt).substitute(builtin_args._asdict(), **args)
+    return string.Template(system_prompt).substitute(asdict(builtin_args), **args)
 
 
-type ToolType = CallableTool | CallableTool2[Any]
-# TODO: move this to kosong.tooling.simple
-
-
+# TODO: maybe move to `KimiToolset`
 def _load_tools(
-    toolset: CustomToolset,
+    toolset: KimiToolset,
     tool_paths: list[str],
     dependencies: dict[type[Any], Any],
 ) -> list[str]:
@@ -106,7 +106,7 @@ def _load_tools(
             logger.info("Skipping tool: {tool_path}", tool_path=tool_path)
             continue
         if tool:
-            toolset += tool
+            toolset.add(tool)
         else:
             bad_tools.append(tool_path)
     logger.info("Loaded tools: {tools}", tools=[tool.name for tool in toolset.tools])
@@ -138,8 +138,9 @@ def _load_tool(tool_path: str, dependencies: dict[type[Any], Any]) -> ToolType |
 
 
 async def _load_mcp_tools(
-    toolset: CustomToolset,
+    toolset: KimiToolset,
     mcp_configs: list[dict[str, Any]],
+    runtime: Runtime,
 ):
     """
     Raises:
@@ -155,5 +156,5 @@ async def _load_mcp_tools(
         client = fastmcp.Client(mcp_config)
         async with client:
             for tool in await client.list_tools():
-                toolset += MCPTool(tool, client)
+                toolset.add(MCPTool(tool, client, runtime=runtime))
     return toolset
