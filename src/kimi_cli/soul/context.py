@@ -75,7 +75,9 @@ class Context:
         """
         Revert the context to the specified checkpoint.
         After this, the specified checkpoint and all subsequent content will be
-        removed from the context. File backend will be rotated.
+        removed from the context. File backend will be rotated. This only touches
+        the conversation log; on-disk project files are intentionally left intact
+        so callers must keep their own filesystem changes consistent.
 
         Args:
             checkpoint_id (int): The ID of the checkpoint to revert to. 0 is the first checkpoint.

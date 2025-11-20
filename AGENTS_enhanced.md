@@ -265,6 +265,14 @@ GitHub Actions workflow provides:
 - **Testing**: `pytest>=9.0.0`, `pytest-asyncio>=1.3.0`
 - **Build**: `pyinstaller>=6.16.0`
 
+### Additional References
+
+- For a Mandarin deep dive into the D-Mail/time-travel workflow, see `docs/dmail_time_travel_zh.md`.
+
 ## Version History
 
 This project follows semantic versioning. For detailed version history, release notes, and changes across all versions, please refer to `CHANGELOG.md` in the project root.
+
+---
+
+*This document was generated based on the enhanced project information provided during the /init command execution.*
