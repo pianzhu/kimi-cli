@@ -1,14 +1,15 @@
 from pathlib import Path
-from typing import Any, override
+from typing import override
 
-import aiofiles
-from kosong.tooling import CallableTool2, ToolError, ToolOk, ToolReturnType
+from kaos.path import KaosPath
+from kosong.tooling import CallableTool2, ToolError, ToolOk, ToolReturnValue
 from pydantic import BaseModel, Field
 
+from kimi_cli.soul.agent import BuiltinSystemPromptArgs
 from kimi_cli.soul.approval import Approval
-from kimi_cli.soul.runtime import BuiltinSystemPromptArgs
 from kimi_cli.tools.file import FileActions
 from kimi_cli.tools.utils import ToolRejectedError, load_desc
+from kimi_cli.utils.path import is_within_directory
 
 
 class Edit(BaseModel):
@@ -32,19 +33,18 @@ class StrReplaceFile(CallableTool2[Params]):
     description: str = load_desc(Path(__file__).parent / "replace.md")
     params: type[Params] = Params
 
-    def __init__(self, builtin_args: BuiltinSystemPromptArgs, approval: Approval, **kwargs: Any):
-        super().__init__(**kwargs)
+    def __init__(self, builtin_args: BuiltinSystemPromptArgs, approval: Approval):
+        super().__init__()
         self._work_dir = builtin_args.KIMI_WORK_DIR
         self._approval = approval
 
-    def _validate_path(self, path: Path) -> ToolError | None:
+    async def _validate_path(self, path: KaosPath) -> ToolError | None:
         """Validate that the path is safe to edit."""
         # Check for path traversal attempts
-        resolved_path = path.resolve()
-        resolved_work_dir = self._work_dir.resolve()
+        resolved_path = path.canonical()
 
         # Ensure the path is within work directory
-        if not str(resolved_path).startswith(str(resolved_work_dir)):
+        if not is_within_directory(resolved_path, self._work_dir):
             return ToolError(
                 message=(
                     f"`{path}` is outside the working directory. "
@@ -62,9 +62,9 @@ class StrReplaceFile(CallableTool2[Params]):
             return content.replace(edit.old, edit.new, 1)
 
     @override
-    async def __call__(self, params: Params) -> ToolReturnType:
+    async def __call__(self, params: Params) -> ToolReturnValue:
         try:
-            p = Path(params.path)
+            p = KaosPath(params.path)
 
             if not p.is_absolute():
                 return ToolError(
@@ -76,16 +76,16 @@ class StrReplaceFile(CallableTool2[Params]):
                 )
 
             # Validate path safety
-            path_error = self._validate_path(p)
+            path_error = await self._validate_path(p)
             if path_error:
                 return path_error
 
-            if not p.exists():
+            if not await p.exists():
                 return ToolError(
                     message=f"`{params.path}` does not exist.",
                     brief="File not found",
                 )
-            if not p.is_file():
+            if not await p.is_file():
                 return ToolError(
                     message=f"`{params.path}` is not a file.",
                     brief="Invalid path",
@@ -100,8 +100,7 @@ class StrReplaceFile(CallableTool2[Params]):
                 return ToolRejectedError()
 
             # Read the file content
-            async with aiofiles.open(p, encoding="utf-8", errors="replace") as f:
-                content = await f.read()
+            content = await p.read_text(errors="replace")
 
             original_content = content
             edits = [params.edit] if isinstance(params.edit, Edit) else params.edit
@@ -118,8 +117,7 @@ class StrReplaceFile(CallableTool2[Params]):
                 )
 
             # Write the modified content back to the file
-            async with aiofiles.open(p, mode="w", encoding="utf-8") as f:
-                await f.write(content)
+            await p.write_text(content, errors="replace")
 
             # Count changes for success message
             total_replacements = 0

@@ -11,7 +11,7 @@ import pytest
 import pytest_asyncio
 from aiohttp import web
 from inline_snapshot import snapshot
-from kosong.tooling import ToolError, ToolOk, ToolReturnType
+from kosong.tooling import ToolError, ToolOk, ToolReturnValue
 
 from kimi_cli.tools.web.fetch import FetchURL, Params
 
@@ -169,7 +169,7 @@ async def test_fetch_url_mocked_http_responses(
 ) -> None:
     """Test fetching multiple mocked HTTP responses."""
 
-    async def mocked_fetch(resp: str, *, content_type: str = "text/html") -> ToolReturnType:
+    async def mocked_fetch(resp: str, *, content_type: str = "text/html") -> ToolReturnValue:
         server_url = await mock_http_server(resp, content_type=content_type)
         return await fetch_url_tool(Params(url=f"{server_url}/"))
 
@@ -204,3 +204,72 @@ This is a markdown document.
     assert isinstance(result, ToolOk)
     assert result.output == snapshot(complex_markdown)
     assert result.message == "The returned content is the full content of the page."
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_with_service() -> None:
+    """Test fetching using the moonshot_fetch service."""
+    from kimi_cli.config import Config, MoonshotFetchConfig, Services
+    from pydantic import SecretStr
+
+    # Setup mock service response
+    expected_content = "# Service Content\n\nThis content was fetched via the service."
+
+    async def service_handler(request: web.Request) -> web.Response:
+        # Verify request
+        assert request.method == "POST"
+        assert request.headers.get("Authorization") == "Bearer test-key"
+        assert request.headers.get("Accept") == "text/markdown"
+        assert request.headers.get("X-Custom-Header") == "custom-value"
+
+        data = await request.json()
+        assert data["url"] == "https://example.com"
+
+        return web.Response(text=expected_content)
+
+    # Create a mock server for the service
+    app = web.Application()
+    app.router.add_post("/fetch", service_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="127.0.0.1", port=0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]  # type: ignore
+    service_url = f"http://127.0.0.1:{port}/fetch"
+
+    try:
+        # Configure tool with service
+        config = Config(
+            services=Services(
+                moonshot_fetch=MoonshotFetchConfig(
+                    base_url=service_url,
+                    api_key=SecretStr("test-key"),
+                    custom_headers={"X-Custom-Header": "custom-value"},
+                )
+            )
+        )
+
+        fetch_tool = FetchURL(config=config)
+
+        # Execute fetch with tool call context
+        from kosong.message import ToolCall
+        from kimi_cli.soul.toolset import current_tool_call
+
+        token = current_tool_call.set(
+            ToolCall(
+                id="test-call-id", function=ToolCall.FunctionBody(name="FetchURL", arguments=None)
+            )
+        )
+        try:
+            result = await fetch_tool(Params(url="https://example.com"))
+        finally:
+            current_tool_call.reset(token)
+
+        assert isinstance(result, ToolOk)
+        assert result.output == expected_content
+        assert result.message == snapshot(
+            "The returned content is the main content extracted from the page."
+        )
+
+    finally:
+        await runner.cleanup()

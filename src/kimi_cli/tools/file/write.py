@@ -1,14 +1,15 @@
 from pathlib import Path
-from typing import Any, Literal, override
+from typing import Literal, override
 
-import aiofiles
-from kosong.tooling import CallableTool2, ToolError, ToolOk, ToolReturnType
+from kaos.path import KaosPath
+from kosong.tooling import CallableTool2, ToolError, ToolOk, ToolReturnValue
 from pydantic import BaseModel, Field
 
+from kimi_cli.soul.agent import BuiltinSystemPromptArgs
 from kimi_cli.soul.approval import Approval
-from kimi_cli.soul.runtime import BuiltinSystemPromptArgs
 from kimi_cli.tools.file import FileActions
 from kimi_cli.tools.utils import ToolRejectedError, load_desc
+from kimi_cli.utils.path import is_within_directory
 
 
 class Params(BaseModel):
@@ -29,19 +30,18 @@ class WriteFile(CallableTool2[Params]):
     description: str = load_desc(Path(__file__).parent / "write.md")
     params: type[Params] = Params
 
-    def __init__(self, builtin_args: BuiltinSystemPromptArgs, approval: Approval, **kwargs: Any):
-        super().__init__(**kwargs)
+    def __init__(self, builtin_args: BuiltinSystemPromptArgs, approval: Approval):
+        super().__init__()
         self._work_dir = builtin_args.KIMI_WORK_DIR
         self._approval = approval
 
-    def _validate_path(self, path: Path) -> ToolError | None:
+    async def _validate_path(self, path: KaosPath) -> ToolError | None:
         """Validate that the path is safe to write."""
         # Check for path traversal attempts
-        resolved_path = path.resolve()
-        resolved_work_dir = self._work_dir.resolve()
+        resolved_path = path.canonical()
 
         # Ensure the path is within work directory
-        if not str(resolved_path).startswith(str(resolved_work_dir)):
+        if not is_within_directory(resolved_path, self._work_dir):
             return ToolError(
                 message=(
                     f"`{path}` is outside the working directory. "
@@ -52,12 +52,12 @@ class WriteFile(CallableTool2[Params]):
         return None
 
     @override
-    async def __call__(self, params: Params) -> ToolReturnType:
+    async def __call__(self, params: Params) -> ToolReturnValue:
         # TODO: checks:
         # - check if the path may contain secrets
         # - check if the file format is writable
         try:
-            p = Path(params.path)
+            p = KaosPath(params.path)
 
             if not p.is_absolute():
                 return ToolError(
@@ -69,11 +69,11 @@ class WriteFile(CallableTool2[Params]):
                 )
 
             # Validate path safety
-            path_error = self._validate_path(p)
+            path_error = await self._validate_path(p)
             if path_error:
                 return path_error
 
-            if not p.parent.exists():
+            if not await p.parent.exists():
                 return ToolError(
                     message=f"`{params.path}` parent directory does not exist.",
                     brief="Parent directory not found",
@@ -97,15 +97,15 @@ class WriteFile(CallableTool2[Params]):
             ):
                 return ToolRejectedError()
 
-            # Determine file mode for aiofiles
-            file_mode = "w" if params.mode == "overwrite" else "a"
-
             # Write content to file
-            async with aiofiles.open(p, mode=file_mode, encoding="utf-8") as f:
-                await f.write(params.content)
+            match params.mode:
+                case "overwrite":
+                    await p.write_text(params.content)
+                case "append":
+                    await p.append_text(params.content)
 
             # Get file info for success message
-            file_size = p.stat().st_size
+            file_size = (await p.stat()).st_size
             action = "overwritten" if params.mode == "overwrite" else "appended to"
             return ToolOk(
                 output="",

@@ -9,6 +9,7 @@ from typing import Any
 
 from kosong.chat_provider import APIStatusError, ChatProviderError
 from kosong.message import ContentPart
+from loguru import logger
 from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.table import Table
@@ -22,12 +23,12 @@ from kimi_cli.ui.shell.prompt import CustomPromptSession, PromptMode, toast
 from kimi_cli.ui.shell.replay import replay_recent_history
 from kimi_cli.ui.shell.update import LATEST_VERSION_FILE, UpdateResult, do_update, semver_tuple
 from kimi_cli.ui.shell.visualize import visualize
-from kimi_cli.utils.logging import logger
 from kimi_cli.utils.signals import install_sigint_handler
 from kimi_cli.utils.term import ensure_new_line
+from kimi_cli.wire.message import StatusUpdate
 
 
-class ShellApp:
+class Shell:
     def __init__(self, soul: Soul, welcome_info: list[WelcomeInfoItem] | None = None):
         self.soul = soul
         self._welcome_info = list(welcome_info or [])
@@ -192,16 +193,16 @@ class ShellApp:
             if isinstance(self.soul, KimiSoul) and thinking is not None:
                 self.soul.set_thinking(thinking)
 
-            # Use lambda to pass cancel_event via closure
             await run_soul(
                 self.soul,
                 user_input,
                 lambda wire: visualize(
-                    wire,
-                    initial_status=self.soul.status,
+                    wire.ui_side(merge=False),  # shell UI maintain its own merge buffer
+                    initial_status=StatusUpdate(context_usage=self.soul.status.context_usage),
                     cancel_event=cancel_event,
                 ),
                 cancel_event,
+                self.soul.wire_file_backend if isinstance(self.soul, KimiSoul) else None,
             )
             return True
         except LLMNotSet:
@@ -304,7 +305,8 @@ def _print_welcome_info(name: str, info_items: list[WelcomeInfoItem]) -> None:
 
     rows: list[RenderableType] = [table]
 
-    rows.append(Text(""))  # Empty line
+    if info_items:
+        rows.append(Text(""))  # empty line
     for item in info_items:
         rows.append(Text(f"{item.name}: {item.value}", style=item.level.value))
 

@@ -14,21 +14,23 @@ from kosong.message import (
     ToolCall,
     ToolCallPart,
 )
-from kosong.tooling import ToolError, ToolOk, ToolResult
+from kosong.tooling import ToolError, ToolResult, ToolReturnValue
 
 from kimi_cli.soul import LLMNotSet, MaxStepsReached, RunCancelled, Soul, run_soul
+from kimi_cli.soul.kimisoul import KimiSoul
 from kimi_cli.tools import extract_key_argument
 from kimi_cli.utils.logging import logger
-from kimi_cli.wire import WireUISide
+from kimi_cli.wire import Wire
 from kimi_cli.wire.message import (
     ApprovalRequest,
-    ApprovalResponse,
+    ApprovalRequestResolved,
     CompactionBegin,
     CompactionEnd,
     StatusUpdate,
     StepBegin,
     StepInterrupted,
     SubagentEvent,
+    TurnBegin,
 )
 
 
@@ -146,7 +148,13 @@ class ACPAgent:
 
         self.run_state = _RunState()
         try:
-            await run_soul(self.soul, prompt_text, self._stream_events, self.run_state.cancel_event)
+            await run_soul(
+                self.soul,
+                prompt_text,
+                self._stream_events,
+                self.run_state.cancel_event,
+                self.soul.wire_file_backend if isinstance(self.soul, KimiSoul) else None,
+            )
             return acp.PromptResponse(stopReason="end_turn")
         except LLMNotSet:
             logger.error("LLM not set")
@@ -178,10 +186,13 @@ class ACPAgent:
             logger.info("Cancelling running prompt")
             self.run_state.cancel_event.set()
 
-    async def _stream_events(self, wire: WireUISide):
+    async def _stream_events(self, wire: Wire):
+        wire_ui = wire.ui_side(merge=False)
         while True:
-            msg = await wire.receive()
+            msg = await wire_ui.receive()
             match msg:
+                case TurnBegin():
+                    pass
                 case StepBegin():
                     pass
                 case StepInterrupted():
@@ -206,6 +217,8 @@ class ACPAgent:
                 case ToolResult():
                     await self._send_tool_result(msg)
                 case SubagentEvent():
+                    pass
+                case ApprovalRequestResolved():
                     pass
                 case ApprovalRequest():
                     await self._handle_approval_request(msg)
@@ -306,8 +319,8 @@ class ACPAgent:
         if not self.session_id:
             return
 
-        tool_result = result.result
-        is_error = isinstance(tool_result, ToolError)
+        tool_ret = result.return_value
+        is_error = isinstance(tool_ret, ToolError)
 
         state = self.run_state.tool_calls.pop(result.tool_call_id, None)
         if state is None:
@@ -320,8 +333,9 @@ class ACPAgent:
             status="failed" if is_error else "completed",
         )
 
-        if state.tool_call.function.name == "SetTodoList" and not is_error:
-            update.content = _tool_result_to_acp_content(tool_result)
+        contents = _tool_result_to_acp_content(tool_ret)
+        if contents:
+            update.content = contents
 
         await self.connection.sessionUpdate(
             acp.SessionNotification(sessionId=self.session_id, update=update)
@@ -334,13 +348,13 @@ class ACPAgent:
         assert self.run_state is not None
         if not self.session_id:
             logger.warning("No session ID, auto-rejecting approval request")
-            request.resolve(ApprovalResponse.REJECT)
+            request.resolve("reject")
             return
 
         state = self.run_state.tool_calls.get(request.tool_call_id, None)
         if state is None:
             logger.warning("Tool call not found: {id}", id=request.tool_call_id)
-            request.resolve(ApprovalResponse.REJECT)
+            request.resolve("reject")
             return
 
         # Create permission request with options
@@ -388,25 +402,25 @@ class ACPAgent:
                 # selected
                 if response.outcome.optionId == "approve":
                     logger.debug("Permission granted for: {action}", action=request.action)
-                    request.resolve(ApprovalResponse.APPROVE)
+                    request.resolve("approve")
                 elif response.outcome.optionId == "approve_for_session":
                     logger.debug("Permission granted for session: {action}", action=request.action)
-                    request.resolve(ApprovalResponse.APPROVE_FOR_SESSION)
+                    request.resolve("approve_for_session")
                 else:
                     logger.debug("Permission denied for: {action}", action=request.action)
-                    request.resolve(ApprovalResponse.REJECT)
+                    request.resolve("reject")
             else:
                 # cancelled
                 logger.debug("Permission request cancelled for: {action}", action=request.action)
-                request.resolve(ApprovalResponse.REJECT)
+                request.resolve("reject")
         except Exception:
             logger.exception("Error handling approval request:")
             # On error, reject the request
-            request.resolve(ApprovalResponse.REJECT)
+            request.resolve("reject")
 
 
 def _tool_result_to_acp_content(
-    tool_result: ToolOk | ToolError,
+    tool_ret: ToolReturnValue,
 ) -> list[
     acp.schema.ContentToolCallContent
     | acp.schema.FileEditToolCallContent
@@ -423,39 +437,46 @@ def _tool_result_to_acp_content(
             return acp.schema.ContentToolCallContent(
                 type="content", content=acp.schema.TextContentBlock(type="text", text=part.text)
             )
-        else:
-            logger.warning("Unsupported content part in tool result: {part}", part=part)
-            return acp.schema.ContentToolCallContent(
-                type="content",
-                content=acp.schema.TextContentBlock(
-                    type="text", text=f"[{part.__class__.__name__}]"
-                ),
-            )
-
-    content: list[
-        (
-            acp.schema.ContentToolCallContent
-            | acp.schema.FileEditToolCallContent
-            | acp.schema.TerminalToolCallContent
+        logger.warning("Unsupported content part in tool result: {part}", part=part)
+        return acp.schema.ContentToolCallContent(
+            type="content",
+            content=acp.schema.TextContentBlock(type="text", text=f"[{part.__class__.__name__}]"),
         )
+
+    def _to_text_block(text: str) -> acp.schema.ContentToolCallContent:
+        return acp.schema.ContentToolCallContent(
+            type="content", content=acp.schema.TextContentBlock(type="text", text=text)
+        )
+
+    contents: list[
+        acp.schema.ContentToolCallContent
+        | acp.schema.FileEditToolCallContent
+        | acp.schema.TerminalToolCallContent
     ] = []
-    if isinstance(tool_result.output, str):
-        content.append(_to_acp_content(TextPart(text=tool_result.output)))
-    elif isinstance(tool_result.output, ContentPart):
-        content.append(_to_acp_content(tool_result.output))
-    elif isinstance(tool_result.output, list):
-        content.extend(_to_acp_content(part) for part in tool_result.output)
 
-    return content
+    output = tool_ret.output
+    if isinstance(output, str):
+        if output:
+            contents.append(_to_text_block(output))
+    else:
+        # NOTE: At the moment, ToolReturnValue.output is either a string or a
+        # list of ContentPart. We avoid an unnecessary isinstance() check here
+        # to keep pyright happy while still handling list outputs.
+        contents.extend(_to_acp_content(part) for part in output)
+
+    if not contents and tool_ret.message:
+        contents.append(_to_text_block(tool_ret.message))
+
+    return contents
 
 
-class ACPServer:
+class ACP:
     """ACP server using the official acp library."""
 
     def __init__(self, soul: Soul):
         self.soul = soul
 
-    async def run(self) -> bool:
+    async def run(self):
         """Run the ACP server."""
         logger.info("Starting ACP server on stdio")
 
@@ -473,5 +494,3 @@ class ACPServer:
 
         # Keep running - connection handles everything
         await asyncio.Event().wait()
-
-        return True

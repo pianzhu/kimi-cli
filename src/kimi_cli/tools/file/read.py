@@ -1,11 +1,11 @@
 from pathlib import Path
-from typing import Any, override
+from typing import override
 
-import aiofiles
-from kosong.tooling import CallableTool2, ToolError, ToolOk, ToolReturnType
+from kaos.path import KaosPath
+from kosong.tooling import CallableTool2, ToolError, ToolOk, ToolReturnValue
 from pydantic import BaseModel, Field
 
-from kimi_cli.soul.runtime import BuiltinSystemPromptArgs
+from kimi_cli.soul.agent import BuiltinSystemPromptArgs
 from kimi_cli.tools.utils import load_desc, truncate_line
 
 MAX_LINES = 1000
@@ -47,18 +47,17 @@ class ReadFile(CallableTool2[Params]):
     )
     params: type[Params] = Params
 
-    def __init__(self, builtin_args: BuiltinSystemPromptArgs, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
-
+    def __init__(self, builtin_args: BuiltinSystemPromptArgs) -> None:
+        super().__init__()
         self._work_dir = builtin_args.KIMI_WORK_DIR
 
     @override
-    async def __call__(self, params: Params) -> ToolReturnType:
+    async def __call__(self, params: Params) -> ToolReturnValue:
         # TODO: checks:
         # - check if the path may contain secrets
         # - check if the file format is readable
         try:
-            p = Path(params.path)
+            p = KaosPath(params.path)
 
             if not p.is_absolute():
                 return ToolError(
@@ -69,12 +68,12 @@ class ReadFile(CallableTool2[Params]):
                     brief="Invalid path",
                 )
 
-            if not p.exists():
+            if not await p.exists():
                 return ToolError(
                     message=f"`{params.path}` does not exist.",
                     brief="File not found",
                 )
-            if not p.is_file():
+            if not await p.is_file():
                 return ToolError(
                     message=f"`{params.path}` is not a file.",
                     brief="Invalid path",
@@ -88,25 +87,24 @@ class ReadFile(CallableTool2[Params]):
             truncated_line_numbers: list[int] = []
             max_lines_reached = False
             max_bytes_reached = False
-            async with aiofiles.open(p, encoding="utf-8", errors="replace") as f:
-                current_line_no = 0
-                async for line in f:
-                    current_line_no += 1
-                    if current_line_no < params.line_offset:
-                        continue
-                    truncated = truncate_line(line, MAX_LINE_LENGTH)
-                    if truncated != line:
-                        truncated_line_numbers.append(current_line_no)
-                    lines.append(truncated)
-                    n_bytes += len(truncated.encode("utf-8"))
-                    if len(lines) >= params.n_lines:
-                        break
-                    if len(lines) >= MAX_LINES:
-                        max_lines_reached = True
-                        break
-                    if n_bytes >= MAX_BYTES:
-                        max_bytes_reached = True
-                        break
+            current_line_no = 0
+            async for line in p.read_lines(errors="replace"):
+                current_line_no += 1
+                if current_line_no < params.line_offset:
+                    continue
+                truncated = truncate_line(line, MAX_LINE_LENGTH)
+                if truncated != line:
+                    truncated_line_numbers.append(current_line_no)
+                lines.append(truncated)
+                n_bytes += len(truncated.encode("utf-8"))
+                if len(lines) >= params.n_lines:
+                    break
+                if len(lines) >= MAX_LINES:
+                    max_lines_reached = True
+                    break
+                if n_bytes >= MAX_BYTES:
+                    max_bytes_reached = True
+                    break
 
             # Format output with line numbers like `cat -n`
             lines_with_no: list[str] = []

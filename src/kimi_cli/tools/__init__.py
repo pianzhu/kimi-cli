@@ -1,8 +1,8 @@
 import json
-from pathlib import Path
 from typing import cast
 
 import streamingjson  # pyright: ignore[reportMissingTypeStubs]
+from kaos.path import KaosPath
 from kosong.utils.typing import JsonType
 
 from kimi_cli.utils.string import shorten_middle
@@ -31,6 +31,10 @@ def extract_key_argument(json_content: str | streamingjson.Lexer, tool_name: str
             if not isinstance(curr_args, dict) or not curr_args.get("description"):
                 return None
             key_argument = str(curr_args["description"])
+        case "CreateSubagent":
+            if not isinstance(curr_args, dict) or not curr_args.get("name"):
+                return None
+            key_argument = str(curr_args["name"])
         case "SendDMail":
             return "El Psy Kongroo"
         case "Think":
@@ -83,7 +87,7 @@ def extract_key_argument(json_content: str | streamingjson.Lexer, tool_name: str
 
 
 def _normalize_path(path: str) -> str:
-    cwd = str(Path.cwd().absolute())
+    cwd = str(KaosPath.cwd().canonical())
     if path.startswith(cwd):
         path = path[len(cwd) :].lstrip("/\\")
     return path
